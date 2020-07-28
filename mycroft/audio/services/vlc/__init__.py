@@ -79,7 +79,7 @@ class VlcService(AudioBackend):
             self.list_player.set_playback_mode(vlc.PlaybackMode.default)
 
         self.list_player.play()
-        if self.volume:
+        if hasattr(self, 'volume'):
             # set initial volume to a user defined value
             LOG.debug("starting stream with Volume set at: " + str(self.volume))
             self.player.audio_set_volume(self.volume)
