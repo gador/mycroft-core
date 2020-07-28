@@ -17,6 +17,8 @@ import vlc
 from mycroft.audio.services import AudioBackend
 from mycroft.util.log import LOG
 
+from mycroft.messagebus.message import Message
+
 
 class VlcService(AudioBackend):
     def __init__(self, config, bus=None, name='vlc'):
@@ -38,6 +40,18 @@ class VlcService(AudioBackend):
         self.name = name
         self.normal_volume = None
         self.low_volume = self.config.get('low_volume', 30)
+
+        # get the volume from mycroft
+        # if no volume value has been set in the cofiguration
+        # use the mycroft volume retrieved from bus
+        # or, if that fails, use a save default of 50%
+        vol_msg = self.bus.wait_for_response(
+                                Message("mycroft.volume.get", {'show': False}))
+        if vol_msg:
+            self.initial_volume = int(vol_msg.data["percent"] * 100)
+        else:
+            self.initial_volume = 50
+        self.volume = int(self.config.get('volume', self.initial_volume))
 
     def track_start(self, data, other):
         if self._track_start_callback:
@@ -73,6 +87,9 @@ class VlcService(AudioBackend):
             self.list_player.set_playback_mode(vlc.PlaybackMode.default)
 
         self.list_player.play()
+        # set initial volume to a user defined value
+        LOG.debug("starting stream with Volume set at: " + str(self.volume))
+        self.player.audio_set_volume(self.volume)
 
     def stop(self):
         """ Stop vlc playback. """
@@ -111,14 +128,20 @@ class VlcService(AudioBackend):
         if (self.normal_volume is None and self.player.is_playing() and
                 self.config.get('duck', False)):
             self.normal_volume = self.player.audio_get_volume()
-            self.player.audio_set_volume(self.low_volume)
+            if self.normal_volume < self.low_volume:
+                self.pause()
+            else:
+                self.player.audio_set_volume(self.low_volume)
 
     def restore_volume(self):
         """ Restore volume to previous level. """
         # if vlc has been lowered restore the volume
-        if self.normal_volume:
+        if self.normal_volume and self.normal_volume > self.low_volume:
             self.player.audio_set_volume(self.normal_volume)
             self.normal_volume = None
+        else:
+            self.normal_volume = None
+            self.resume()
 
     def track_info(self):
         """ Extract info of current track. """
